@@ -1,0 +1,146 @@
+---
+output: html_document
+---
+
+## Weight Lifting Exercises Classification  
+### by Renato Pedroso Neto      
+
+### Synopsis  
+This study aims to model the [Weight Lifting Exercises Dataset](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises), provided by PUC university, using machine learning tools to predict the manner in which a person is doing the Unilateral Dumbbell Biceps Curl exercise.  
+The study will use the following class labels:  
+a) Exercise exactly according to the specification (Class A)  
+b) Exercise throwing the elbows to the front (Class B)  
+c) Exercise lifting the dumbbell only halfway (Class C)  
+d) Exercise lowering the dumbbell only halfway (Class D)  
+e) Exercise throwing the hips to the front (Class E)  
+
+### Data Processing  
+1) To begin with, we need to load the data, available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)  
+
+```{r load, warning= FALSE, echo = TRUE}
+library(caret, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(plyr, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(dplyr, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(data.table, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(randomForest, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(gbm, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(survival, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(splines, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(parallel, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(rpart, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(klaR, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+library(MASS, quietly = TRUE, warn.conflicts = FALSE, verbose = FALSE)
+setwd("C:\\Users\\Renato\\WLE_Data")
+# load the training data
+wle_training <- fread("pml-training.csv", sep = ",", header = TRUE, stringsAsFactors = FALSE, na.strings=c("", "NA"))
+# load the test data
+wle_test     <- fread("pml-testing.csv", sep = ",", header = TRUE, stringsAsFactors = FALSE, na.strings=c("", "NA"))
+```
+
+2) After that we can check the variables and start to think about include them, or not, in one machine learning technique.
+
+```{r, clean, warning = FALSE, echo = TRUE}
+# is there any column with all values na?
+na_count <- as.data.frame(colSums(is.na(wle_training)))
+na_count[na_count == nrow(wle_training),]
+# no columns with only NA values!
+
+# drop all variables that has NA (training and test)
+drop <- colSums(is.na(wle_training)) == 0
+drop <- drop[drop == TRUE]
+wle_training <- subset(wle_training, select = names(drop))
+wle_test$classe <- ""
+wle_test <- subset(wle_test, select = names(drop))
+remove(drop)
+
+# remove first 6 columns
+wle_training <- subset(wle_training, select = -c(1:6))
+wle_test     <- subset(wle_test, select = -c(1:6))
+
+# transform classe in factor
+wle_training$classe = as.factor(wle_training$classe)
+```
+
+3) Subdividing the training data set loaded from PUC website
+
+```{r training}
+wle_inf <- createDataPartition(wle_training$classe, p = 0.6, list = FALSE)
+wle_training_train <- wle_training[wle_inf,]
+wle_training_test  <- wle_training[-wle_inf,]
+```
+
+### Model Planning / Model Building
+
+1) For classifications pourposes we will try the most effective algorithms:  
+a) Random Forests  
+b) Boosting  
+c) Decision Tree  
+d) Naive Bayes 
+
+All of them using the cross validation with 5 folds.
+
+```{r model_building, warning = FALSE, echo = TRUE}
+set.seed(9191)
+model_rf  <- train(classe ~ . , data = wle_training_train, method = "rf",
+                  trControl = trainControl(method = "cv", number = 5))
+
+model_gbm <- train(classe ~ . , data = wle_training_train, method = "gbm",
+                  trControl = trainControl(method = "cv", number = 5),
+                  verbose = FALSE)
+
+model_dt  <- train(classe ~ . , data = wle_training_train, method = "rpart",
+                  trControl = trainControl(method = "cv", number = 5))
+
+model_nb  <- train(classe ~ . , data = wle_training_train, method = "nb",
+                  trControl = trainControl(method = "cv", number = 5),
+                  verbose = FALSE)
+
+# in sample accuracy
+acc_rf_is  <- confusionMatrix(predict(model_rf, wle_training_train), wle_training_train$classe)$overall[1]
+acc_gbm_is <- confusionMatrix(predict(model_gbm, wle_training_train), wle_training_train$classe)$overall[1]
+acc_dt_is  <- confusionMatrix(predict(model_dt, wle_training_train), wle_training_train$classe)$overall[1]
+acc_nb_is  <- confusionMatrix(predict(model_nb, wle_training_train), wle_training_train$classe)$overall[1]
+insample_acc <- data.frame(acc_rf_is, acc_gbm_is, acc_dt_is, acc_nb_is)
+
+# out of sample accuracy
+acc_rf_os  <- confusionMatrix(predict(model_rf, wle_training_test), wle_training_test$classe)$overall[1]
+acc_gbm_os <- confusionMatrix(predict(model_gbm, wle_training_test), wle_training_test$classe)$overall[1]
+acc_dt_os  <- confusionMatrix(predict(model_dt, wle_training_test), wle_training_test$classe)$overall[1]
+acc_nb_os  <- confusionMatrix(predict(model_nb, wle_training_test), wle_training_test$classe)$overall[1]
+outsample_acc <- data.frame(acc_rf_os, acc_gbm_os, acc_dt_os, acc_nb_os)
+
+# In Sample and Out of Sample Accuracy
+print(insample_acc)
+print(outsample_acc)
+
+```
+
+We can compare all the confusion matrix generated (out of sample only):  
+
+```{r cm, warning = FALSE, echo = TRUE}
+# Random Forest Trees Confusion Matrix
+confusionMatrix(predict(model_rf, wle_training_test), wle_training_test$classe)
+# Boosting Confusion Matrix
+confusionMatrix(predict(model_gbm, wle_training_test), wle_training_test$classe)
+# Decision Tree Confusion Matrix
+confusionMatrix(predict(model_dt, wle_training_test), wle_training_test$classe)
+# Naive Bayes Confusion Matrix
+confusionMatrix(predict(model_nb, wle_training_test), wle_training_test$classe)
+```
+
+### Conclusions and Prediction 
+```{r, warning = FALSE, echo = TRUE}
+plot(model_rf)
+```
+
+The model that offered the best accuracy was the ***random forest***. It reached ***99,8%*** of accuracy in the out of sample test.  
+If we consider this accuracy, the expected out of sample error is ***0,2%***  
+
+The prediction of the test data is:  
+
+```{r prediction, warning = FALSE, echo = TRUE}
+wle_test$classe <- predict(model_rf, wle_test)
+print(wle_test$classe)
+str(wle_test)
+```
+
